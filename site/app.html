@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BoxOut</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app-shell">
+  <div class="rail-backdrop" id="rail-backdrop"></div>
+  <aside class="rail" id="rail">
+    <div class="rail-brand">
+      <div class="mark"><img src="logos/boxout-icon.png" alt="BoxOut"></div>
+      <div class="name">BoxOut<small>EuroLeague Intelligence</small></div>
+      <button class="btn btn-icon btn-ghost rail-close-btn" id="rail-close" aria-label="Close navigation">✕</button>
+    </div>
+    <div class="rail-search" id="search-trigger">
+      <span>Search teams, players, stats…</span>
+      <kbd>⌘K</kbd>
+    </div>
+    <nav id="rail-nav"></nav>
+    <div class="rail-foot">
+      <div class="rail-foot-row">
+        <div>
+          <div class="rail-section-label eyebrow">Season</div>
+          <div class="season-toggle" id="season-toggle"></div>
+        </div>
+        <div>
+          <div class="rail-section-label eyebrow" id="lang-toggle-label">Language</div>
+          <div class="season-toggle lang-toggle" id="lang-toggle"></div>
+        </div>
+      </div>
+      <div class="rail-foot-row">
+        <div>
+          <div class="rail-section-label eyebrow" id="theme-toggle-label">Theme</div>
+          <div class="season-toggle" id="theme-toggle"></div>
+        </div>
+      </div>
+      <div class="hairline"></div>
+      <div class="data-status" id="data-status">Loading data status…</div>
+      <button class="btn btn-sm btn-ghost data-refresh-btn" id="data-refresh">↻ Refresh data</button>
+      <a href="https://www.netlify.com" target="_blank" rel="noopener" style="display:block;margin-top:8px;font-size:11px;opacity:.5;text-decoration:none;">This site is powered by Netlify</a>
+    </div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="btn btn-icon btn-ghost rail-toggle-btn" id="rail-toggle" aria-label="Toggle navigation">☰</button>
+      <div class="crumb" id="crumb"><b>Command Center</b></div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+<!-- Real Firebase backend (replaces the Claude Artifact `db` capability — see
+     js/firebase-init.js for why). Classic scripts, loaded before the type=
+     module app script so window.firebase exists by the time it runs. -->
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

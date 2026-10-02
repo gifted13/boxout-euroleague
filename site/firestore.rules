@@ -1,0 +1,161 @@
+// ============================================================================
+// BoxOut — Firestore security rules.
+//
+// This app has NO backend server — every read/write below is made straight
+// from the visitor's browser (see the PASSWORDS note in js/account.js). That
+// means these rules ARE the entire security boundary; the app's own client-
+// side checks (password hashing, "only show this button to an admin", etc.)
+// are UX, not enforcement — anyone can call the Firestore API directly and
+// skip the app's UI entirely, so nothing here should assume they didn't.
+//
+// The one real identity these rules can trust is Firebase Authentication:
+// only the actual site owner knows the password for the ADMIN_EMAIL account
+// created by hand in the Firebase console (Authentication > Users), so
+// request.auth.token.email == ADMIN_EMAIL is what "isSuperAdmin()" checks —
+// never the `role`/`status` fields inside a requests/ document, which are
+// just data anyone could otherwise write.
+//
+// Accepted, disclosed trade-off (same one this app has always made — see
+// account.js): requests/ and password_resets/ are openly READABLE, so
+// nicknames, emails and password HASHES are visible to anyone who queries
+// Firestore directly, not just through the app's UI. Only WRITES are locked
+// down here.
+// ============================================================================
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSuperAdmin() {
+      return request.auth != null && request.auth.token.email == 'tzografos_@hotmail.gr';
+    }
+
+    // -----------------------------------------------------------------
+    // requests/{id} — one document per account (id = a hash of the
+    // lowercased email, see docIdForEmail() in account.js). Holds email,
+    // nickname, favoriteTeamCode, status (approved/rejected/banned —
+    // pending is legacy, kept readable for old docs but no longer written
+    // by sign-up), role (member/admin — cosmetic only, see isSuperAdmin()
+    // above), passwordHash, tosAccepted/tosAcceptedAt, lang, theme.
+    // -----------------------------------------------------------------
+    match /requests/{id} {
+      allow get, list: if true;
+
+      // Sign-up. The super admin's own bootstrap doc (status "approved",
+      // role "admin" from the very first write) is the one exception, and
+      // can only be created while already authenticated as the real super
+      // admin via Firebase Auth — otherwise anyone could race to create
+      // that specific document first and claim it. Every other sign-up is
+      // open to anyone and self-approves immediately (no admin review step
+      // — the /admin panel can still ban/delete/role-change afterwards),
+      // but MUST have accepted the Terms & Conditions (tosAccepted == true
+      // — see accountGate.tosBody* in i18n.js for what that covers,
+      // including the marketing-contact consent clause) — enforced here so
+      // it can't be skipped by calling the Firestore API directly.
+      allow create: if
+        (request.resource.data.email == 'tzografos_@hotmail.gr' && isSuperAdmin())
+        || (
+          request.resource.data.email != 'tzografos_@hotmail.gr'
+          && request.resource.data.status == 'approved'
+          && request.resource.data.role == 'member'
+          && request.resource.data.email is string
+          && request.resource.data.passwordHash is string
+          && request.resource.data.tosAccepted == true
+        );
+
+      // The super admin can change anything (approve/reject/ban/unban/
+      // role-change). Anyone else can only ever touch fields OTHER than
+      // status/role through this path — matches every self-service flow
+      // the app's own UI already offers with no real per-user auth behind
+      // it (change my own password, edit my profile) — OR resubmit a
+      // rejected request back to pending. status/role themselves are never
+      // writable by anyone but the real super admin.
+      allow update: if isSuperAdmin()
+        || (resource.data.status == 'rejected' && request.resource.data.status == 'pending')
+        || (
+          !('status' in request.resource.data.diff(resource.data).affectedKeys())
+          && !('role' in request.resource.data.diff(resource.data).affectedKeys())
+        );
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // -----------------------------------------------------------------
+    // password_resets/{id} — same id scheme as requests/. "Forgot
+    // password" flow: a visitor creates/re-creates a 'pending' doc; only
+    // the super admin can flip it to 'approved' (never types a password —
+    // see account.adminApprovePasswordReset) or delete it (dismiss).
+    // -----------------------------------------------------------------
+    match /password_resets/{id} {
+      allow get, list: if true;
+      allow create: if request.resource.data.status == 'pending';
+      // A non-admin may only ever re-file a fresh 'pending' request
+      // (touching just status/requestedAt/email) — never set 'approved'
+      // themselves.
+      allow update: if isSuperAdmin()
+        || (
+          request.resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'requestedAt', 'email'])
+        );
+      allow delete: if isSuperAdmin();
+    }
+
+    // -----------------------------------------------------------------
+    // ai_insights/{id} — one document ("latest"), written by the scheduled
+    // Netlify function netlify/functions/ai-insights.js (a daily job that
+    // calls the Anthropic API and rewrites this doc in full — see that
+    // file's header). Read by js/views/command-center.js to render the "AI
+    // Analysis" cards.
+    //
+    // Like every other collection here, create/update is left open rather
+    // than locked to "only that function" — this project has no real
+    // backend identity to check (see file header), so the function writes
+    // over Firestore's plain public REST API with no auth token, same as
+    // any visitor's browser could. The trade-off is explicit: a visitor who
+    // called the Firestore API directly could overwrite these cards with
+    // fabricated content. Mitigated, not eliminated, by: the app always
+    // labels this section as AI-generated (never presented as verified
+    // fact) and the shape check below at least keeps a tampered write
+    // structurally sane. Accepted for a fan app with no login-gated write
+    // path anywhere else either.
+    // -----------------------------------------------------------------
+    match /ai_insights/{id} {
+      allow get, list: if true;
+      allow create, update: if
+        request.resource.data.generated_at is string
+        && request.resource.data.season is int
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0
+        && request.resource.data.items.size() <= 10;
+      allow delete: if isSuperAdmin();
+    }
+
+    // -----------------------------------------------------------------
+    // trivia_profiles/{id} — same id scheme as requests/{id} (a hash of
+    // the lowercased email, see docIdForEmail() in account.js /
+    // trivia-state.js's own matching hashId()). One doc per member,
+    // holding their Trivia state that's meant to follow the account
+    // across devices: lives, lastResetDate, leaderboard stats (nickname,
+    // bestScore, bestPct, attempt totals, lastPlayedAt). Per-question
+    // attempt history stays device-local only (see js/trivia-state.js) —
+    // not needed anywhere else. list is what makes the shared leaderboard
+    // possible — every visitor reads the whole collection to rank it, same
+    // trade-off already made for requests/ and chat_messages/ above (no
+    // real per-user auth exists to restrict writes to "your own doc only"
+    // — see the file header).
+    // -----------------------------------------------------------------
+    match /trivia_profiles/{id} {
+      allow get, list: if true;
+      allow create, update: if
+        request.resource.data.email is string
+        && request.resource.data.nickname is string
+        && request.resource.data.lives is int && request.resource.data.lives >= 0 && request.resource.data.lives <= 5
+        && request.resource.data.bestScore is int && request.resource.data.bestScore >= 0
+        && request.resource.data.totalAttempts is int && request.resource.data.totalAttempts >= 0
+        && request.resource.data.totalCompletedAttempts is int && request.resource.data.totalCompletedAttempts >= 0
+        && request.resource.data.totalCompletedAttempts <= request.resource.data.totalAttempts;
+      allow delete: if isSuperAdmin();
+    }
+  }
+}

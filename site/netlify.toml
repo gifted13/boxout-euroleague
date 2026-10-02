@@ -1,0 +1,19 @@
+[build]
+  functions = "netlify/functions"
+  publish = "."
+
+[functions]
+  node_bundler = "esbuild"
+
+# Daily safety-net trigger for netlify/functions/ai-insights.js — the
+# PRIMARY trigger is a "Deploy succeeded" outgoing webhook you set up once in
+# the Netlify UI (Site configuration → Build & deploy → Deploy notifications
+# → Add notification → Outgoing webhook → event "Deploy succeeded" → URL:
+# https://<your-site>/.netlify/functions/ai-insights), since a manual data
+# refresh IS a deploy in this project — see that file's header comment for
+# why. This cron just re-fires the same function in case that webhook isn't
+# set up yet or misfires; the function itself skips doing any work (no
+# Claude call, no Firestore write) when the data hasn't changed since its
+# last run, so this line costs nothing extra on a normal day.
+[functions."ai-insights"]
+  schedule = "@daily"
